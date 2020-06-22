@@ -311,11 +311,13 @@ open class Operation : NSObject {
                     op._state = .executing
                 }
                 op._unlock()
+                //op2的状态
             case .toReady:
                 let r = op.isReady
                 op._cachedIsReady = r
                 let q = op._queue
                 if r {
+                    //调度
                     q?._schedule()
                 }
             }
@@ -399,15 +401,20 @@ open class Operation : NSObject {
     open var isReady: Bool {
         _lock()
         defer { _unlock() }
+        //__unfinishedDependencyCount为0 才为true
         return __unfinishedDependencyCount == 0
     }
     
+    //依赖关系 op2.addDependency(op1)
     internal func _addDependency(_ op: Operation) {
+        //weak strong dance
         withExtendedLifetime(self) {
             withExtendedLifetime(op) {
                 var up: Operation?
                 _lock()
+                //__dependencies数组 详见Operation源码
                 if __dependencies.first(where: { $0 === op }) == nil {
+                    //把op1加到op2的__dependencies数组中
                     __dependencies.append(op)
                     up = op
                 }
@@ -419,12 +426,16 @@ open class Operation : NSObject {
                     let upIsFinished = upwards._state == __NSOperationState.finished
                     if !upIsFinished && !_isCancelled {
                         assert(_unfinishedDependencyCount >= 0)
+                        //未完成任务数+1
                         _incrementUnfinishedDependencyCount()
+                        //把op2加到op1的__downDependencies集合中
                         upwards._addParent(self)
                     }
                     _unlock()
                     upwards._unlock()
                 }
+                //po self._unfinishedDependencyCount  po self.__downDependencies  po self.__dependencies  po op.__downDependencies
+                //看isReady的状态
                 Operation.observeValue(forKeyPath: _NSOperationIsReady, ofObject: self)
             }
         }
@@ -982,6 +993,8 @@ open class OperationQueue : NSObject, ProgressReporting {
             if 0 >= slotsAvail || _suspended {
                 break
             }
+            
+            //取出链表的firstOperation
             var op = _firstPriorityOperation(prio)
             var prev: Unmanaged<Operation>?
             while let operation = op?.takeUnretainedValue() {
@@ -1006,6 +1019,7 @@ open class OperationQueue : NSObject, ProgressReporting {
                     _incrementExecutingOperations()
                     slotsAvail -= 1
                     
+                    //对列  底层还是GCD
                     let queue: DispatchQueue
                     if __mainQ {
                         queue = DispatchQueue.main
@@ -1015,7 +1029,9 @@ open class OperationQueue : NSObject, ProgressReporting {
                     
                     if let schedule = operation.__schedule {
                         if operation is _BarrierOperation {
+                            //async
                             queue.async(flags: .barrier, execute: {
+                                //workItem 被调用
                                 schedule.perform()
                             })
                         } else {
@@ -1146,6 +1162,8 @@ open class OperationQueue : NSObject, ProgressReporting {
         }
     }
     
+    
+    
     internal func _addOperations(_ ops: [Operation], barrier: Bool = false) {
         if ops.isEmpty { return }
         
@@ -1154,23 +1172,29 @@ open class OperationQueue : NSObject, ProgressReporting {
         var firstNewOp: Unmanaged<Operation>?
         var lastNewOp: Unmanaged<Operation>?
         for op in ops {
+            //状态从initialized改为enqueuing
             if op._compareAndSwapState(.initialized, .enqueuing) {
                 successes += 1
                 if 0 == failures {
                     let retained = Unmanaged.passRetained(op)
                     op._cachedIsReady = op.isReady
                     let schedule: DispatchWorkItem
-                    
+                    //设置了qualityOfService 优先级
                     if let qos = op.__propertyQoS?.qosClass {
+                        //DispatchWorkItem来封装 Opeartion封装于GCD实锤
                         schedule = DispatchWorkItem.init(qos: qos, flags: .enforceQoS, block: {
+                            //调度任务
                             self._schedule(op)
                         })
                     } else {
+                        //没设置就去当前上下文优先级
                         schedule = DispatchWorkItem(flags: .assignCurrentContext, block: {
                             self._schedule(op)
                         })
                     }
                     op._adopt(queue: self, schedule: schedule)
+                    
+                    //形成链表调度关系 双向链表
                     op.__previousOperation = lastNewOp
                     op.__nextOperation = nil
                     if let lastNewOperation = lastNewOp?.takeUnretainedValue() {
@@ -1207,6 +1231,7 @@ open class OperationQueue : NSObject, ProgressReporting {
             _incrementOperationCount()
         }
         
+        //建立首节点和尾结点
         var pending = firstNewOp
         if let pendingOperation = pending?.takeUnretainedValue() {
             let old_last = __lastOperation
@@ -1229,6 +1254,9 @@ open class OperationQueue : NSObject, ProgressReporting {
             
             _ = pendingOperation._compareAndSwapState(.enqueuing, .enqueued)
             var pri = pendingOperation.__priorityValue
+            
+            // 按着优先级又排列一遍  优先级有影响 但不起决定作用
+            
             if pri == nil {
                 let v = __actualMaxNumOps == 1 ? nil : pendingOperation.__propertyQoS
                 if let qos = v {
@@ -1258,6 +1286,7 @@ open class OperationQueue : NSObject, ProgressReporting {
         }
         
         if !barrier {
+            //调度任务
             _schedule()
         }
     }

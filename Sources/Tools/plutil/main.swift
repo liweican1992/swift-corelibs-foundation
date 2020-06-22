@@ -349,40 +349,70 @@ func display(_ options: Options) -> Int32 {
 }
 
 func main() -> Int32 {
-    var args = ProcessInfo.processInfo.arguments
     
-    if args.count < 2 {
-        print("No files specified.")
-        return EXIT_FAILURE
+    let op1 = BlockOperation.init {
+        for _ in 0...3 {
+            print("task A + \(Thread.current)")
+        }
     }
     
-    // Throw away process path
-    args.removeFirst()
-    do {
-        let opts = try parseArguments(args)
-        switch opts.mode {
-            case .lint:
-                return lint(opts)
-            case .convert:
-                return convert(opts)
-            case .print:
-                return display(opts)
-            case .help:
-                return help()
+    let op2 = BlockOperation.init {
+        for _ in 0...3 {
+            print("task B + \(Thread.current)")
         }
-    } catch {
-        switch error as! OptionParseError {
-            case .unrecognizedArgument(let arg):
-                print("unrecognized option: \(arg)")
-                let _ = help()
-            case .invalidFormat(let format):
-                print("unrecognized format \(format)\nformat should be one of: xml1 binary1 json")
-            case .missingArgument(let errorStr):
-                print(errorStr)
-        }
-        return EXIT_FAILURE
     }
+    let op3 = BlockOperation.init {
+         for _ in 0...3 {
+             print("task C + \(Thread.current)")
+         }
+     }
+//    op3.start()
+    
+    op2.addDependency(op1)
+//    op3.addDependency(op2)
+
+    let queue = OperationQueue.init()
+    queue.maxConcurrentOperationCount = 2
+//    queue.addOperations([op2, op1], waitUntilFinished: false)
+    queue.addOperation(op2)
+    queue.addOperation(op1)
+//    queue.addOperation(op3)
+//
+//    var args = ProcessInfo.processInfo.arguments
+//
+//    if args.count < 2 {
+//        print("No files specified.")
+//        return EXIT_FAILURE
+//    }
+//
+//    // Throw away process path
+//    args.removeFirst()
+//    do {
+//        let opts = try parseArguments(args)
+//        switch opts.mode {
+//            case .lint:
+//                return lint(opts)
+//            case .convert:
+//                return convert(opts)
+//            case .print:
+//                return display(opts)
+//            case .help:
+//                return help()
+//        }
+//    } catch {
+//        switch error as! OptionParseError {
+//            case .unrecognizedArgument(let arg):
+//                print("unrecognized option: \(arg)")
+//                let _ = help()
+//            case .invalidFormat(let format):
+//                print("unrecognized format \(format)\nformat should be one of: xml1 binary1 json")
+//            case .missingArgument(let errorStr):
+//                print(errorStr)
+//        }
+//        return EXIT_FAILURE
+//    }
+    return EXIT_SUCCESS
 }
 
-exit(main())
-
+//exit(main())
+main()
